@@ -1,11 +1,21 @@
-import React from 'react';
-import { cn } from '../lib/utils';
+import React from "react";
+import { cn } from "../lib/utils";
 
-export const DraggableNode = ({ type, label, icon: Icon, color,customData = {} }) => {
+export const DraggableNode = ({
+  type,
+  label,
+  icon: Icon,
+  color,
+  customData = {},
+}) => {
   const onDragStart = (event) => {
-    const appData = { nodeType: type,customData };
-    event.dataTransfer.setData('application/reactflow', JSON.stringify(appData));
-    event.dataTransfer.effectAllowed = 'move';
+    console.log(customData);
+    const appData = { nodeType: type, label, component: customData };
+    event.dataTransfer.setData(
+      "application/reactflow",
+      JSON.stringify(appData)
+    );
+    event.dataTransfer.effectAllowed = "move";
   };
 
   return (

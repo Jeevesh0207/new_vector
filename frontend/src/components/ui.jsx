@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import ReactFlow, { Controls, Background, MiniMap } from 'reactflow';
+import ReactFlow, { Controls, Background, MiniMap, Handle } from 'reactflow';
 import { useStore } from '../lib/store';
 import { shallow } from 'zustand/shallow';
 import { InputNode } from './nodes/input-node';
@@ -9,11 +9,13 @@ import { TextNode } from './nodes/text-node';
 import { TransformNode } from './nodes/transform-node';
 import { CalculationNode } from './nodes/calculation-node';
 import { DecisionNode } from './nodes/decision-node';
+import SavedComponentNode from './saved/SavedComponentNode';
 
 import 'reactflow/dist/style.css';
 
 const gridSize = 20;
 const proOptions = { hideAttribution: true };
+
 const nodeTypes = {
   customInput: InputNode,
   llm: LLMNode,
@@ -22,6 +24,7 @@ const nodeTypes = {
   transform: TransformNode,
   calculation: CalculationNode,
   decision: DecisionNode,
+  savedComponent: SavedComponentNode,
 };
 
 const selector = (state) => ({
@@ -57,8 +60,10 @@ export const PipelineUI = () => {
       const appData = event.dataTransfer.getData('application/reactflow');
       if (!appData) return;
 
-      const { nodeType } = JSON.parse(appData);
+      const { nodeType, label, component } = JSON.parse(appData);
       if (!nodeType) return;
+
+      console.log(nodeType,name,component)
 
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
@@ -70,14 +75,18 @@ export const PipelineUI = () => {
         id: nodeID,
         type: nodeType,
         position,
-        data: { id: nodeID, nodeType },
+        data: {
+          id: nodeID,
+          nodeType,
+          label,
+          component,
+        },
       };
 
       addNode(newNode);
     },
     [reactFlowInstance, getNodeID, addNode]
   );
-
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();

@@ -1,0 +1,910 @@
+File: ./frontend/src/main.jsx
+--------------------------------------------------------------------------------
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App.jsx';
+import './index.css';
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>
+);
+
+================================================================================
+
+File: ./frontend/src/App.jsx
+--------------------------------------------------------------------------------
+import { PipelineToolbar } from './components/toolbar';
+import { PipelineUI } from './components/ui';
+import { SubmitButton } from './components/submit-button';
+
+function App() {
+  return (
+    <div className="flex flex-col h-screen bg-gray-50">
+      <PipelineToolbar />
+      <div className="flex-1">
+        <PipelineUI />
+      </div>
+      <SubmitButton />
+    </div>
+  );
+}
+
+export default App;
+
+================================================================================
+
+File: ./frontend/src/components/node-base.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { Handle, Position } from 'reactflow';
+import { cn } from '../lib/utils';
+
+export const BaseNode = ({
+  id,
+  data,
+  type,
+  handles = [],
+  children,
+  className,
+  onDataChange,
+}) => {
+  return (
+    <div
+      className={cn(
+        "bg-white rounded-lg shadow-lg p-4 min-w-[200px]",
+        "border border-gray-200 hover:border-blue-400 transition-colors",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-700">{type}</h3>
+      </div>
+
+      {children}
+
+      {handles.map((handle) => (
+        <Handle
+          key={handle.id}
+          type={handle.type}
+          position={handle.position}
+          id={`${id}-${handle.id}`}
+          style={{
+            background: '#64748b',
+            width: 12,
+            height: 12,
+            ...handle.style,
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/draggable-node.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { cn } from '../lib/utils';
+
+export const DraggableNode = ({ type, label, icon: Icon, color,customData = {} }) => {
+  const onDragStart = (event) => {
+    const appData = { nodeType: type,customData };
+    event.dataTransfer.setData('application/reactflow', JSON.stringify(appData));
+    event.dataTransfer.effectAllowed = 'move';
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 px-4 py-2 text-white rounded-lg cursor-grab transition-transform hover:scale-105",
+        "shadow-sm hover:shadow-md",
+        color
+      )}
+      onDragStart={onDragStart}
+      draggable
+    >
+      <Icon size={18} />
+      <span className="text-sm font-medium">{label}</span>
+    </div>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/ui.jsx
+--------------------------------------------------------------------------------
+import { useState, useRef, useCallback } from 'react';
+import ReactFlow, { Controls, Background, MiniMap } from 'reactflow';
+import { useStore } from '../lib/store';
+import { shallow } from 'zustand/shallow';
+import { InputNode } from './nodes/input-node';
+import { LLMNode } from './nodes/llm-node';
+import { OutputNode } from './nodes/output-node';
+import { TextNode } from './nodes/text-node';
+import { TransformNode } from './nodes/transform-node';
+import { CalculationNode } from './nodes/calculation-node';
+import { DecisionNode } from './nodes/decision-node';
+
+import 'reactflow/dist/style.css';
+
+const gridSize = 20;
+const proOptions = { hideAttribution: true };
+const nodeTypes = {
+  customInput: InputNode,
+  llm: LLMNode,
+  customOutput: OutputNode,
+  text: TextNode,
+  transform: TransformNode,
+  calculation: CalculationNode,
+  decision: DecisionNode,
+};
+
+const selector = (state) => ({
+  nodes: state.nodes,
+  edges: state.edges,
+  getNodeID: state.getNodeID,
+  addNode: state.addNode,
+  onNodesChange: state.onNodesChange,
+  onEdgesChange: state.onEdgesChange,
+  onConnect: state.onConnect,
+});
+
+export const PipelineUI = () => {
+  const reactFlowWrapper = useRef(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const {
+    nodes,
+    edges,
+    getNodeID,
+    addNode,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+  } = useStore(selector, shallow);
+
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+
+      const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect();
+      if (!reactFlowBounds || !reactFlowInstance) return;
+
+      const appData = event.dataTransfer.getData('application/reactflow');
+      if (!appData) return;
+
+      const { nodeType } = JSON.parse(appData);
+      if (!nodeType) return;
+
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      const nodeID = getNodeID(nodeType);
+      const newNode = {
+        id: nodeID,
+        type: nodeType,
+        position,
+        data: { id: nodeID, nodeType },
+      };
+
+      addNode(newNode);
+    },
+    [reactFlowInstance, getNodeID, addNode]
+  );
+
+
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  return (
+    <div ref={reactFlowWrapper} className="w-full h-[calc(100vh-10rem)]">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onInit={setReactFlowInstance}
+        nodeTypes={nodeTypes}
+        proOptions={proOptions}
+        snapGrid={[gridSize, gridSize]}
+        connectionLineType="smoothstep"
+      >
+        <Background color="#aaa" gap={gridSize} />
+        <Controls />
+        <MiniMap />
+      </ReactFlow>
+    </div>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/submit-button.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { useStore } from '../lib/store';
+import { shallow } from 'zustand/shallow';
+
+const selector = (state) => ({
+  nodes: state.nodes,
+  edges: state.edges,
+});
+
+export const SubmitButton = () => {
+  const { nodes, edges } = useStore(selector, shallow);
+
+  const handleSubmit = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/pipelines/parse', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ nodes, edges }),
+      });
+
+      const data = await response.json();
+
+      alert(
+        `Pipeline Analysis:\n\n` +
+        `Number of Nodes: ${data.num_nodes}\n` +
+        `Number of Edges: ${data.num_edges}\n` +
+        `Is DAG: ${data.is_dag ? 'Yes' : 'No'}`
+      );
+    } catch (error) {
+      alert('Error submitting pipeline: ' + error.message);
+    }
+  };
+
+  return (
+    <div className="fixed bottom-4 w-full  flex justify-center">
+      <button
+        onClick={handleSubmit}
+        className="px-6 py-2 text-white bg-blue-500 rounded-lg shadow-lg hover:bg-blue-600 transition-colors"
+      >
+        Submit Pipeline
+      </button>
+    </div>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/save-button.jsx
+--------------------------------------------------------------------------------
+import React, { useState } from 'react';
+import { Save } from 'lucide-react';
+import { SaveComponentModal } from '../components/saved/SaveComponentModal';
+import { useStore } from '../lib/store';
+import { shallow } from 'zustand/shallow';
+
+export const SaveButton = () => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const selectedNodes = useStore(
+    (state) => state.nodes.filter(node => node.selected),
+    shallow
+  );
+
+  const handleSaveClick = () => {
+    if (selectedNodes.length > 0) {
+      setIsModalOpen(true);
+    } else {
+      alert('Please select nodes to save as a component');
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={handleSaveClick}
+        className="flex items-center gap-2 px-4 py-2 text-white bg-indigo-500 rounded-lg shadow-lg hover:bg-indigo-600 transition-colors"
+        title="Save selected nodes as component"
+      >
+        <Save size={18} />
+        <span className="text-sm font-medium">Save Component</span>
+      </button>
+      <SaveComponentModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+      />
+    </>
+  );
+};
+================================================================================
+
+File: ./frontend/src/components/toolbar.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { DraggableNode } from './draggable-node';
+import { SaveButton } from './save-button';
+import { SavedComponents } from './saved/SavedComponents';
+import { Brain, Type, ArrowRightCircle, ArrowLeftCircle, Wand2, Calculator, GitBranch } from 'lucide-react';
+
+const tools = [
+  { type: 'customInput', label: 'Input', icon: ArrowLeftCircle, color: 'bg-blue-500' },
+  { type: 'llm', label: 'LLM', icon: Brain, color: 'bg-purple-500' },
+  { type: 'text', label: 'Text', icon: Type, color: 'bg-green-500' },
+  { type: 'customOutput', label: 'Output', icon: ArrowRightCircle, color: 'bg-orange-500' },
+  { type: 'transform', label: 'Transform', icon: Wand2, color: 'bg-pink-500' },
+  { type: 'calculation', label: 'Calculation', icon: Calculator, color: 'bg-yellow-500' },
+  { type: 'decision', label: 'Decision', icon: GitBranch, color: 'bg-purple-500' },
+];
+
+export const PipelineToolbar = () => {
+  return (
+    <div className="p-4 bg-white border-b">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold text-gray-700">Tools</h2>
+        <SaveButton />
+      </div>
+      <div className="flex flex-wrap gap-3">
+        {tools.map((tool) => (
+          <DraggableNode
+            key={tool.type}
+            type={tool.type}
+            label={tool.label}
+            icon={tool.icon}
+            color={tool.color}
+          />
+        ))}
+      </div>
+      <SavedComponents />
+    </div>
+  );
+};
+================================================================================
+
+File: ./frontend/src/components/saved/SaveComponentModal.jsx
+--------------------------------------------------------------------------------
+import React, { useState } from 'react';
+import { useStore } from '../../lib/store';
+import { shallow } from 'zustand/shallow';
+
+export const SaveComponentModal = ({ isOpen, onClose }) => {
+  const [name, setName] = useState('');
+  const selectedNodes = useStore(
+    (state) => state.nodes.filter(node => node.selected),
+    shallow
+  );
+  const saveComponent = useStore((state) => state.saveComponent);
+
+  const handleSave = () => {
+    if (!name.trim()) {
+      alert('Please enter a name for the component');
+      return;
+    }
+    
+    saveComponent(name, selectedNodes);
+    setName('');
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-96">
+        <h2 className="text-xl font-semibold mb-4">Save Component</h2>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Component Name
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter component name"
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-600 hover:text-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+================================================================================
+
+File: ./frontend/src/components/saved/SavedComponents.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { useStore } from '../../lib/store';
+import { DraggableNode } from '../draggable-node';
+import { Package } from 'lucide-react';
+
+export const SavedComponents = () => {
+  const savedComponents = useStore((state) => state.savedComponents);
+
+  if (!savedComponents || savedComponents.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4">
+      <h2 className="mb-4 text-lg font-semibold text-gray-700">Saved Components</h2>
+      <div className="flex flex-wrap gap-3">
+        {savedComponents.map((component) => (
+          <DraggableNode
+            key={component.name}
+            type="savedComponent"
+            label={component.name}
+            icon={Package}
+            color="bg-teal-500"
+            customData={{ component }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+================================================================================
+
+File: ./frontend/src/components/nodes/decision-node.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { BaseNode } from '../node-base';
+import { Position } from 'reactflow';
+import { GitBranch } from 'lucide-react';
+
+export const DecisionNode = ({ id, data }) => {
+  return (
+    <BaseNode
+      id={id}
+      type="Decision"
+      data={data}
+      handles={[
+        { id: 'input', type: 'target', position: Position.Left },
+        { id: 'yesOutput', type: 'source', position: Position.Right },
+        { id: 'noOutput', type: 'source', position: Position.Bottom },
+      ]}
+      className="bg-purple-50 border-purple-400"
+    >
+      <GitBranch className="w-8 h-8 text-purple-600" />
+    </BaseNode>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/nodes/calculation-node.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { BaseNode } from '../node-base';
+import { Position } from 'reactflow';
+import { Calculator } from 'lucide-react';
+
+export const CalculationNode = ({ id, data }) => {
+  return (
+    <BaseNode
+      id={id}
+      type="Calculation"
+      data={data}
+      handles={[
+        { id: 'input', type: 'target', position: Position.Left },
+        { id: 'output', type: 'source', position: Position.Right },
+      ]}
+      className="bg-yellow-50 border-yellow-400"
+    >
+      <Calculator className="w-8 h-8 text-yellow-600" />
+    </BaseNode>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/nodes/text-node.jsx
+--------------------------------------------------------------------------------
+import React, { useState, useEffect } from 'react';
+import { Position } from 'reactflow';
+import { BaseNode } from '../node-base';
+import { extractVariables, isValidVariableName } from '../../lib/utils';
+
+export const TextNode = ({ id, data }) => {
+  const [text, setText] = useState(data?.text || '{{input}}');
+  const [variables, setVariables] = useState([]);
+  const [height, setHeight] = useState('auto');
+
+  useEffect(() => {
+    const vars = extractVariables(text)
+      .filter(isValidVariableName)
+      .filter((v, i, self) => self.indexOf(v) === i);
+    setVariables(vars);
+  }, [text]);
+
+  const handles = [
+    {
+      id: 'output',
+      type: 'source',
+      position: Position.Right,
+      label: 'Output',
+    },
+    ...variables.map((variable) => ({
+      id: variable,
+      type: 'target',
+      position: Position.Left,
+      label: variable,
+    })),
+  ];
+
+  return (
+    <BaseNode
+      id={id}
+      type="Text"
+      data={data}
+      handles={handles}
+      className="bg-green-50"
+    >
+      <div className="space-y-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          className="w-full px-2 py-1 text-sm border rounded resize-none focus:outline-none focus:ring-1 focus:ring-green-400"
+          style={{ height }}
+          onInput={(e) => {
+            const target = e.target;
+            target.style.height = 'auto';
+            target.style.height = `${target.scrollHeight}px`;
+            setHeight(`${target.scrollHeight}px`);
+          }}
+          rows={1}
+        />
+        {variables.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {variables.map((variable) => (
+              <span
+                key={variable}
+                className="px-2 py-1 text-xs bg-green-100 rounded-full text-green-700"
+              >
+                {variable}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </BaseNode>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/nodes/output-node.jsx
+--------------------------------------------------------------------------------
+import React, { useState } from 'react';
+import { Position } from 'reactflow';
+import { BaseNode } from '../node-base';
+
+export const OutputNode = ({ id, data }) => {
+  const [name, setName] = useState(data?.outputName || id.replace('customOutput-', 'output_'));
+  const [type, setType] = useState(data?.outputType || 'Text');
+
+  const handles = [
+    {
+      id: 'value',
+      type: 'target',
+      position: Position.Left,
+      label: 'Input',
+    },
+  ];
+
+  return (
+    <BaseNode
+      id={id}
+      type="Output"
+      data={data}
+      handles={handles}
+      className="bg-orange-50"
+    >
+      <div className="space-y-3">
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-600">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-orange-400"
+          />
+        </div>
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-600">Type</label>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-orange-400"
+          >
+            <option value="Text">Text</option>
+            <option value="Image">Image</option>
+          </select>
+        </div>
+      </div>
+    </BaseNode>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/nodes/transform-node.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { BaseNode } from '../node-base';
+import { Position } from 'reactflow';
+import { Wand2 } from 'lucide-react';
+
+export const TransformNode = ({ id, data }) => {
+  const handles = [
+    {
+      id: 'input',
+      type: 'target',
+      position: Position.Left,
+      label: 'Input',
+    },
+    {
+      id: 'output',
+      type: 'source',
+      position: Position.Right,
+      label: 'Output',
+    },
+  ];
+
+  return (
+    <BaseNode
+      id={id}
+      type="Transform"
+      data={data}
+      handles={handles}
+      className="bg-pink-50"
+    >
+      <div className="flex flex-col items-center space-y-2">
+        <Wand2 className="w-8 h-8 text-pink-600" />
+        <p className="text-sm text-gray-600">Transform Node</p>
+      </div>
+    </BaseNode>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/nodes/llm-node.jsx
+--------------------------------------------------------------------------------
+import React from 'react';
+import { Position } from 'reactflow';
+import { BaseNode } from '../node-base';
+import { Brain } from 'lucide-react';
+
+export const LLMNode = ({ id, data }) => {
+  const handles = [
+    {
+      id: 'system',
+      type: 'target',
+      position: Position.Left,
+      label: 'System',
+      style: { top: '33%' },
+    },
+    {
+      id: 'prompt',
+      type: 'target',
+      position: Position.Left,
+      label: 'Prompt',
+      style: { top: '66%' },
+    },
+    {
+      id: 'response',
+      type: 'source',
+      position: Position.Right,
+      label: 'Response',
+    },
+  ];
+
+  return (
+    <BaseNode
+      id={id}
+      type="LLM"
+      data={data}
+      handles={handles}
+      className="bg-purple-50"
+    >
+      <div className="flex flex-col items-center space-y-2">
+        <Brain className="w-8 h-8 text-purple-600" />
+        <p className="text-sm text-gray-600">Language Model</p>
+      </div>
+    </BaseNode>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/components/nodes/input-node.jsx
+--------------------------------------------------------------------------------
+import React, { useState } from 'react';
+import { Position } from 'reactflow';
+import { BaseNode } from '../node-base';
+
+export const InputNode = ({ id, data }) => {
+  const [name, setName] = useState(data?.inputName || id.replace('customInput-', 'input_'));
+  const [type, setType] = useState(data?.inputType || 'Text');
+
+  const handles = [
+    {
+      id: 'value',
+      type: 'source',
+      position: Position.Right,
+      label: 'Output',
+    },
+  ];
+
+  return (
+    <BaseNode
+      id={id}
+      type="Input"
+      data={data}
+      handles={handles}
+      className="bg-blue-50"
+    >
+      <div className="space-y-3">
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-600">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+          />
+        </div>
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-600">Type</label>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+          >
+            <option value="Text">Text</option>
+            <option value="File">File</option>
+          </select>
+        </div>
+      </div>
+    </BaseNode>
+  );
+};
+
+================================================================================
+
+File: ./frontend/src/lib/store.js
+--------------------------------------------------------------------------------
+import { createWithEqualityFn } from 'zustand/traditional';
+import {
+  addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
+  MarkerType,
+} from 'reactflow';
+
+const initialState = {
+  nodes: [],
+  edges: [],
+  nodeIDs: {},
+  savedComponents: [],
+};
+
+export const useStore = createWithEqualityFn((set, get) => ({
+  ...initialState,
+
+  getNodeID: (type) => {
+    const newIDs = { ...get().nodeIDs };
+    if (!newIDs[type]) {
+      newIDs[type] = 0;
+    }
+    newIDs[type] += 1;
+    set({ nodeIDs: newIDs });
+    return `${type}-${newIDs[type]}`;
+  },
+
+  addNode: (node) => {
+    set((state) => ({
+      nodes: [...state.nodes, node],
+    }));
+  },
+
+  onNodesChange: (changes) => {
+    set((state) => ({
+      nodes: applyNodeChanges(changes, state.nodes),
+    }));
+  },
+
+  onEdgesChange: (changes) => {
+    set((state) => ({
+      edges: applyEdgeChanges(changes, state.edges),
+    }));
+  },
+
+  onConnect: (connection) => {
+    set((state) => ({
+      edges: addEdge(
+        {
+          ...connection,
+          type: 'smoothstep',
+          animated: true,
+          markerEnd: { type: MarkerType.Arrow },
+        },
+        state.edges
+      ),
+    }));
+  },
+
+  updateNodeField: (nodeId, fieldName, fieldValue) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id === nodeId) {
+          return {
+            ...node,
+            data: { ...node.data, [fieldName]: fieldValue },
+          };
+        }
+        return node;
+      }),
+    }));
+  },
+
+  saveComponent: (name, nodes) => {
+    set((state) => ({
+      savedComponents: [
+        ...state.savedComponents,
+        {
+          name,
+          nodes: nodes.map(node => ({
+            ...node,
+            position: { x: 0, y: 0 },
+            selected: false
+          }))
+        }
+      ]
+    }));
+  },
+}), Object.is);
+================================================================================
+
+File: ./frontend/src/lib/utils.js
+--------------------------------------------------------------------------------
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+export function cn(...inputs) {
+  return twMerge(clsx(inputs));
+}
+
+export function extractVariables(text) {
+  const regex = /{{(.*?)}}/g;
+  const matches = text.match(regex) || [];
+  return matches.map(match => match.slice(2, -2).trim());
+}
+
+export function isValidVariableName(name) {
+  try {
+    Function(`var ${name};`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+================================================================================
+
