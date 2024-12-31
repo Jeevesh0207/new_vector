@@ -9,7 +9,6 @@ export const DraggableNode = ({
   customData = {},
 }) => {
   const onDragStart = (event) => {
-    console.log(customData);
     const appData = { nodeType: type, label, component: customData };
     event.dataTransfer.setData(
       "application/reactflow",

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Save } from 'lucide-react';
-import { SaveComponentModal } from '../components/saved/SaveComponentModal';
+import { SaveComponentModal } from './saved/SaveComponentModal';
 import { useStore } from '../lib/store';
 import { shallow } from 'zustand/shallow';
 
@@ -28,6 +28,11 @@ export const SaveButton = () => {
       >
         <Save size={18} />
         <span className="text-sm font-medium">Save Component</span>
+        {selectedNodes.length > 0 && (
+          <span className="px-2 py-0.5 text-xs bg-white text-indigo-600 rounded-full">
+            {selectedNodes.length}
+          </span>
+        )}
       </button>
       <SaveComponentModal 
         isOpen={isModalOpen} 

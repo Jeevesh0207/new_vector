@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
 import { cn } from '../lib/utils';
 import { useStore } from '../lib/store';
+import { theme } from '../lib/theme';
 
-export const BaseNode = ({
+export const BaseNode = memo(({
   id,
   data,
   type,
@@ -15,15 +16,18 @@ export const BaseNode = ({
   const toggleNodeSelection = useStore((state) => state.toggleNodeSelection);
   const selectedNodes = useStore((state) => state.selectedNodes);
   const isSelected = selectedNodes.includes(id);
-  const handleClick = () => {
-    toggleNodeSelection(id); // Toggle node selection on click
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    toggleNodeSelection(id);
   };
+
   return (
     <div
       className={cn(
-        "bg-white rounded-lg shadow-lg p-4 min-w-[200px]",
-        "border border-gray-200 hover:border-blue-400 transition-colors",
-        isSelected ? "border-blue-500" : "",
+        "rounded-lg p-4 min-w-[200px] transition-all duration-200",
+        theme.shadows.node,
+        isSelected ? "ring-2 ring-blue-500 ring-offset-2" : "ring-1 ring-gray-200",
         className
       )}
       onClick={handleClick}
@@ -40,14 +44,10 @@ export const BaseNode = ({
           type={handle.type}
           position={handle.position}
           id={`${id}-${handle.id}`}
-          style={{
-            background: '#64748b',
-            width: 12,
-            height: 12,
-            ...handle.style,
-          }}
+          className="w-3 h-3 rounded-full border-2 border-white bg-gray-600 transition-colors hover:bg-blue-500"
+          style={handle.style}
         />
       ))}
     </div>
   );
-};
+});

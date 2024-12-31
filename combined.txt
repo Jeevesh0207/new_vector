@@ -1,20 +1,26 @@
 File: ./frontend/src/main.jsx
 --------------------------------------------------------------------------------
+```
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
+import { ReactFlowProvider } from 'reactflow';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+   <ReactFlowProvider>
+   <App />
+   </ReactFlowProvider>
   </StrictMode>
 );
+```
 
 ================================================================================
 
 File: ./frontend/src/App.jsx
 --------------------------------------------------------------------------------
+```
 import { PipelineToolbar } from './components/toolbar';
 import { PipelineUI } from './components/ui';
 import { SubmitButton } from './components/submit-button';
@@ -32,16 +38,20 @@ function App() {
 }
 
 export default App;
+```
 
 ================================================================================
 
 File: ./frontend/src/components/node-base.jsx
 --------------------------------------------------------------------------------
-import React from 'react';
+```
+import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
 import { cn } from '../lib/utils';
+import { useStore } from '../lib/store';
+import { theme } from '../lib/theme';
 
-export const BaseNode = ({
+export const BaseNode = memo(({
   id,
   data,
   type,
@@ -50,13 +60,24 @@ export const BaseNode = ({
   className,
   onDataChange,
 }) => {
+  const toggleNodeSelection = useStore((state) => state.toggleNodeSelection);
+  const selectedNodes = useStore((state) => state.selectedNodes);
+  const isSelected = selectedNodes.includes(id);
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    toggleNodeSelection(id);
+  };
+
   return (
     <div
       className={cn(
-        "bg-white rounded-lg shadow-lg p-4 min-w-[200px]",
-        "border border-gray-200 hover:border-blue-400 transition-colors",
+        "rounded-lg p-4 min-w-[200px] transition-all duration-200",
+        theme.shadows.node,
+        isSelected ? "ring-2 ring-blue-500 ring-offset-2" : "ring-1 ring-gray-200",
         className
       )}
+      onClick={handleClick}
     >
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700">{type}</h3>
@@ -70,30 +91,36 @@ export const BaseNode = ({
           type={handle.type}
           position={handle.position}
           id={`${id}-${handle.id}`}
-          style={{
-            background: '#64748b',
-            width: 12,
-            height: 12,
-            ...handle.style,
-          }}
+          className="w-3 h-3 rounded-full border-2 border-white bg-gray-600 transition-colors hover:bg-blue-500"
+          style={handle.style}
         />
       ))}
     </div>
   );
-};
+});```
 
 ================================================================================
 
 File: ./frontend/src/components/draggable-node.jsx
 --------------------------------------------------------------------------------
-import React from 'react';
-import { cn } from '../lib/utils';
+```
+import React from "react";
+import { cn } from "../lib/utils";
 
-export const DraggableNode = ({ type, label, icon: Icon, color,customData = {} }) => {
+export const DraggableNode = ({
+  type,
+  label,
+  icon: Icon,
+  color,
+  customData = {},
+}) => {
   const onDragStart = (event) => {
-    const appData = { nodeType: type,customData };
-    event.dataTransfer.setData('application/reactflow', JSON.stringify(appData));
-    event.dataTransfer.effectAllowed = 'move';
+    const appData = { nodeType: type, label, component: customData };
+    event.dataTransfer.setData(
+      "application/reactflow",
+      JSON.stringify(appData)
+    );
+    event.dataTransfer.effectAllowed = "move";
   };
 
   return (
@@ -111,13 +138,21 @@ export const DraggableNode = ({ type, label, icon: Icon, color,customData = {} }
     </div>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/ui.jsx
 --------------------------------------------------------------------------------
-import { useState, useRef, useCallback } from 'react';
-import ReactFlow, { Controls, Background, MiniMap } from 'reactflow';
+```
+import { useState, useRef, useCallback, useMemo } from 'react';
+import ReactFlow, { 
+  Controls, 
+  Background, 
+  MiniMap,
+  Panel,
+  useReactFlow,
+} from 'reactflow';
 import { useStore } from '../lib/store';
 import { shallow } from 'zustand/shallow';
 import { InputNode } from './nodes/input-node';
@@ -127,11 +162,11 @@ import { TextNode } from './nodes/text-node';
 import { TransformNode } from './nodes/transform-node';
 import { CalculationNode } from './nodes/calculation-node';
 import { DecisionNode } from './nodes/decision-node';
+import SavedComponentNode from './saved/SavedComponentNode';
+import { ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 
 import 'reactflow/dist/style.css';
 
-const gridSize = 20;
-const proOptions = { hideAttribution: true };
 const nodeTypes = {
   customInput: InputNode,
   llm: LLMNode,
@@ -140,6 +175,7 @@ const nodeTypes = {
   transform: TransformNode,
   calculation: CalculationNode,
   decision: DecisionNode,
+  savedComponent: SavedComponentNode,
 };
 
 const selector = (state) => ({
@@ -152,9 +188,16 @@ const selector = (state) => ({
   onConnect: state.onConnect,
 });
 
+const proOptions = { 
+  hideAttribution: true,
+  account: 'paid-pro',
+};
+
 export const PipelineUI = () => {
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  
   const {
     nodes,
     edges,
@@ -164,6 +207,9 @@ export const PipelineUI = () => {
     onEdgesChange,
     onConnect,
   } = useStore(selector, shallow);
+
+  
+  const memoizedNodeTypes = useMemo(() => nodeTypes, []);
 
   const onDrop = useCallback(
     (event) => {
@@ -175,12 +221,12 @@ export const PipelineUI = () => {
       const appData = event.dataTransfer.getData('application/reactflow');
       if (!appData) return;
 
-      const { nodeType } = JSON.parse(appData);
+      const { nodeType, label, component } = JSON.parse(appData);
       if (!nodeType) return;
 
       const position = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
+        x: event.clientX - reactFlowBounds.left,
+        y: event.clientY - reactFlowBounds.top,
       });
 
       const nodeID = getNodeID(nodeType);
@@ -188,14 +234,13 @@ export const PipelineUI = () => {
         id: nodeID,
         type: nodeType,
         position,
-        data: { id: nodeID, nodeType },
+        data: { id: nodeID, nodeType, label, component },
       };
 
       addNode(newNode);
     },
     [reactFlowInstance, getNodeID, addNode]
   );
-
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -213,23 +258,65 @@ export const PipelineUI = () => {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onInit={setReactFlowInstance}
-        nodeTypes={nodeTypes}
+        nodeTypes={memoizedNodeTypes}
         proOptions={proOptions}
-        snapGrid={[gridSize, gridSize]}
-        connectionLineType="smoothstep"
+        minZoom={0.1}
+        maxZoom={4}
+        defaultEdgeOptions={{
+          animated: true,
+          style: { stroke: '#64748b', strokeWidth: 2 },
+        }}
       >
-        <Background color="#aaa" gap={gridSize} />
-        <Controls />
-        <MiniMap />
+        <Background color="#94a3b8" gap={16} size={1} />
+        <Controls 
+          className="bg-white/90 backdrop-blur-sm shadow-lg rounded-lg border border-gray-200"
+          position="bottom-right"
+        />
+        <MiniMap 
+          className="bg-white/90 backdrop-blur-sm shadow-lg rounded-lg border border-gray-200"
+          nodeColor={(node) => {
+            switch (node.type) {
+              case 'customInput': return '#3b82f6';
+              case 'llm': return '#8b5cf6';
+              case 'text': return '#22c55e';
+              case 'customOutput': return '#f97316';
+              case 'transform': return '#ec4899';
+              case 'calculation': return '#eab308';
+              case 'decision': return '#8b5cf6';
+              default: return '#64748b';
+            }
+          }}
+        />
+        <Panel position="top-right" className="flex gap-2">
+          <button
+            onClick={() => zoomIn()}
+            className="p-2 rounded-lg bg-white/90 backdrop-blur-sm shadow-sm hover:bg-gray-50 border border-gray-200"
+          >
+            <ZoomIn size={20} />
+          </button>
+          <button
+            onClick={() => zoomOut()}
+            className="p-2 rounded-lg bg-white/90 backdrop-blur-sm shadow-sm hover:bg-gray-50 border border-gray-200"
+          >
+            <ZoomOut size={20} />
+          </button>
+          <button
+            onClick={() => fitView()}
+            className="p-2 rounded-lg bg-white/90 backdrop-blur-sm shadow-sm hover:bg-gray-50 border border-gray-200"
+          >
+            <Maximize size={20} />
+          </button>
+        </Panel>
       </ReactFlow>
     </div>
   );
-};
+};```
 
 ================================================================================
 
 File: ./frontend/src/components/submit-button.jsx
 --------------------------------------------------------------------------------
+```
 import React from 'react';
 import { useStore } from '../lib/store';
 import { shallow } from 'zustand/shallow';
@@ -276,14 +363,16 @@ export const SubmitButton = () => {
     </div>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/save-button.jsx
 --------------------------------------------------------------------------------
+```
 import React, { useState } from 'react';
 import { Save } from 'lucide-react';
-import { SaveComponentModal } from '../components/saved/SaveComponentModal';
+import { SaveComponentModal } from './saved/SaveComponentModal';
 import { useStore } from '../lib/store';
 import { shallow } from 'zustand/shallow';
 
@@ -311,6 +400,11 @@ export const SaveButton = () => {
       >
         <Save size={18} />
         <span className="text-sm font-medium">Save Component</span>
+        {selectedNodes.length > 0 && (
+          <span className="px-2 py-0.5 text-xs bg-white text-indigo-600 rounded-full">
+            {selectedNodes.length}
+          </span>
+        )}
       </button>
       <SaveComponentModal 
         isOpen={isModalOpen} 
@@ -318,33 +412,85 @@ export const SaveButton = () => {
       />
     </>
   );
-};
+};```
+
 ================================================================================
 
 File: ./frontend/src/components/toolbar.jsx
 --------------------------------------------------------------------------------
-import React from 'react';
-import { DraggableNode } from './draggable-node';
-import { SaveButton } from './save-button';
-import { SavedComponents } from './saved/SavedComponents';
-import { Brain, Type, ArrowRightCircle, ArrowLeftCircle, Wand2, Calculator, GitBranch } from 'lucide-react';
+```
+import React from "react";
+import { DraggableNode } from "./draggable-node";
+import { SaveButton } from "./save-button";
+import { SavedComponents } from "./saved/SavedComponents";
+import {
+  Brain,
+  Type,
+  ArrowRightCircle,
+  ArrowLeftCircle,
+  Wand2,
+  Calculator,
+  GitBranch,
+  Trash2,
+} from "lucide-react";
+import { useStore } from "../lib/store";
 
 const tools = [
-  { type: 'customInput', label: 'Input', icon: ArrowLeftCircle, color: 'bg-blue-500' },
-  { type: 'llm', label: 'LLM', icon: Brain, color: 'bg-purple-500' },
-  { type: 'text', label: 'Text', icon: Type, color: 'bg-green-500' },
-  { type: 'customOutput', label: 'Output', icon: ArrowRightCircle, color: 'bg-orange-500' },
-  { type: 'transform', label: 'Transform', icon: Wand2, color: 'bg-pink-500' },
-  { type: 'calculation', label: 'Calculation', icon: Calculator, color: 'bg-yellow-500' },
-  { type: 'decision', label: 'Decision', icon: GitBranch, color: 'bg-purple-500' },
+  {
+    type: "customInput",
+    label: "Input",
+    icon: ArrowLeftCircle,
+    color: "bg-blue-500",
+  },
+  { type: "llm", label: "LLM", icon: Brain, color: "bg-purple-500" },
+  { type: "text", label: "Text", icon: Type, color: "bg-green-500" },
+  {
+    type: "customOutput",
+    label: "Output",
+    icon: ArrowRightCircle,
+    color: "bg-orange-500",
+  },
+  { type: "transform", label: "Transform", icon: Wand2, color: "bg-pink-500" },
+  {
+    type: "calculation",
+    label: "Calculation",
+    icon: Calculator,
+    color: "bg-yellow-500",
+  },
+  {
+    type: "decision",
+    label: "Decision",
+    icon: GitBranch,
+    color: "bg-purple-500",
+  },
 ];
 
 export const PipelineToolbar = () => {
+  const deleteNode = useStore((state) => state.deleteNode);
+  const selectedNodes = useStore((state) => state.selectedNodes);
+  const handleDelete = () => {
+    if (selectedNodes.length === 0) {
+      alert("Please select a node to delete.");
+      return;
+    }
+    selectedNodes.forEach((nodeId) => deleteNode(nodeId)); 
+  };
+
   return (
     <div className="p-4 bg-white border-b">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold text-gray-700">Tools</h2>
+        <div className="flex gap-5">
+        <button
+          onClick={handleDelete}
+          className="flex items-center gap-2 px-4 py-2 text-white bg-red-500 rounded-lg shadow-lg hover:bg-red-600 transition-colors"
+          title="Delete selected nodes"
+        >
+          <Trash2 size={18} />
+          <span className="text-sm font-medium">Delete</span>
+        </button>
         <SaveButton />
+        </div>
       </div>
       <div className="flex flex-wrap gap-3">
         {tools.map((tool) => (
@@ -361,39 +507,138 @@ export const PipelineToolbar = () => {
     </div>
   );
 };
+```
+
+================================================================================
+
+File: ./frontend/src/components/saved/SavedComponentNode.jsx
+--------------------------------------------------------------------------------
+```
+import React from "react";
+import { Handle, Position } from "reactflow";
+import { useStore } from "../../lib/store";
+import { cn } from '../../lib/utils';
+
+const SavedComponentNode = ({ data, id, className }) => {
+  const { component } = data;
+
+  const toggleNodeSelection = useStore((state) => state.toggleNodeSelection);
+  const selectedNodes = useStore((state) => state.selectedNodes);
+  const isSelected = selectedNodes.includes(id);
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    toggleNodeSelection(id);
+  };
+
+  
+  const hasInput = component.nodes.some((node) => node.type === "customInput");
+  const hasOutput = component.nodes.some(
+    (node) => node.type === "customOutput"
+  );
+
+  return (
+    <div
+      className={cn(
+        "p-4 bg-teal-100 rounded-md shadow-md",
+        isSelected
+          ? "ring-2 ring-blue-500 ring-offset-2"
+          : "ring-1 ring-gray-200",
+        className
+      )}
+      onClick={handleClick} 
+    >
+      <h3 className="font-semibold text-teal-800">{data.label}</h3>
+      <p className="text-sm text-teal-700">{component.description}</p>
+
+      {/* Input Handle */}
+      {hasInput && (
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="input"
+          style={{ background: "#64748b", width: 12, height: 12 }}
+        />
+      )}
+
+      {/* Output Handle */}
+      {hasOutput && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="output"
+          style={{ background: "#64748b", width: 12, height: 12 }}
+        />
+      )}
+    </div>
+  );
+};
+
+export default SavedComponentNode;
+```
+
 ================================================================================
 
 File: ./frontend/src/components/saved/SaveComponentModal.jsx
 --------------------------------------------------------------------------------
+```
 import React, { useState } from 'react';
 import { useStore } from '../../lib/store';
 import { shallow } from 'zustand/shallow';
+import { AlertCircle } from 'lucide-react';
 
 export const SaveComponentModal = ({ isOpen, onClose }) => {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const selectedNodes = useStore(
     (state) => state.nodes.filter(node => node.selected),
     shallow
   );
   const saveComponent = useStore((state) => state.saveComponent);
 
-  const handleSave = () => {
+  const validateComponent = () => {
+    const hasInput = selectedNodes.some(node => node.type === 'customInput');
+    const hasOutput = selectedNodes.some(node => node.type === 'customOutput');
+    const errors = [];
+
     if (!name.trim()) {
-      alert('Please enter a name for the component');
+      errors.push('Please enter a name for the component');
+    }
+
+    if (!hasInput) {
+      errors.push('Component must have at least one input node');
+    }
+
+    if (!hasOutput) {
+      errors.push('Component must have at least one output node');
+    }
+
+    return errors;
+  };
+
+  const handleSave = () => {
+    const errors = validateComponent();
+    if (errors.length > 0) {
+      alert(errors.join('\n'));
       return;
     }
-    
-    saveComponent(name, selectedNodes);
+
+    saveComponent(name, selectedNodes, description);
     setName('');
+    setDescription('');
     onClose();
   };
 
   if (!isOpen) return null;
 
+  const inputCount = selectedNodes.filter(node => node.type === 'customInput').length;
+  const outputCount = selectedNodes.filter(node => node.type === 'customOutput').length;
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 w-96">
         <h2 className="text-xl font-semibold mb-4">Save Component</h2>
+        
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Component Name
@@ -406,6 +651,44 @@ export const SaveComponentModal = ({ isOpen, onClose }) => {
             placeholder="Enter component name"
           />
         </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Description
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter component description"
+            rows={3}
+          />
+        </div>
+
+        <div className="mb-4 p-3 bg-gray-50 rounded-md">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Component Summary</h3>
+          <div className="space-y-1">
+            <p className="text-sm text-gray-600">
+              Total Nodes: {selectedNodes.length}
+            </p>
+            <p className="text-sm text-gray-600">
+              Input Nodes: {inputCount}
+            </p>
+            <p className="text-sm text-gray-600">
+              Output Nodes: {outputCount}
+            </p>
+          </div>
+        </div>
+
+        {(!inputCount || !outputCount) && (
+          <div className="mb-4 p-3 bg-red-50 rounded-md flex items-start gap-2">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-red-700">
+              Component must have at least one input and one output node.
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
@@ -423,11 +706,13 @@ export const SaveComponentModal = ({ isOpen, onClose }) => {
       </div>
     </div>
   );
-};
+};```
+
 ================================================================================
 
 File: ./frontend/src/components/saved/SavedComponents.jsx
 --------------------------------------------------------------------------------
+```
 import React from 'react';
 import { useStore } from '../../lib/store';
 import { DraggableNode } from '../draggable-node';
@@ -451,17 +736,22 @@ export const SavedComponents = () => {
             label={component.name}
             icon={Package}
             color="bg-teal-500"
-            customData={{ component }}
+            customData={{
+                description: `Nodes: ${component.nodes.length}`,
+                ...component,
+            }}
           />
         ))}
       </div>
     </div>
   );
-};
+};```
+
 ================================================================================
 
 File: ./frontend/src/components/nodes/decision-node.jsx
 --------------------------------------------------------------------------------
+```
 import React from 'react';
 import { BaseNode } from '../node-base';
 import { Position } from 'reactflow';
@@ -484,11 +774,13 @@ export const DecisionNode = ({ id, data }) => {
     </BaseNode>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/nodes/calculation-node.jsx
 --------------------------------------------------------------------------------
+```
 import React from 'react';
 import { BaseNode } from '../node-base';
 import { Position } from 'reactflow';
@@ -510,11 +802,13 @@ export const CalculationNode = ({ id, data }) => {
     </BaseNode>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/nodes/text-node.jsx
 --------------------------------------------------------------------------------
+```
 import React, { useState, useEffect } from 'react';
 import { Position } from 'reactflow';
 import { BaseNode } from '../node-base';
@@ -585,11 +879,13 @@ export const TextNode = ({ id, data }) => {
     </BaseNode>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/nodes/output-node.jsx
 --------------------------------------------------------------------------------
+```
 import React, { useState } from 'react';
 import { Position } from 'reactflow';
 import { BaseNode } from '../node-base';
@@ -640,11 +936,13 @@ export const OutputNode = ({ id, data }) => {
     </BaseNode>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/nodes/transform-node.jsx
 --------------------------------------------------------------------------------
+```
 import React from 'react';
 import { BaseNode } from '../node-base';
 import { Position } from 'reactflow';
@@ -681,11 +979,13 @@ export const TransformNode = ({ id, data }) => {
     </BaseNode>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/nodes/llm-node.jsx
 --------------------------------------------------------------------------------
+```
 import React from 'react';
 import { Position } from 'reactflow';
 import { BaseNode } from '../node-base';
@@ -730,11 +1030,13 @@ export const LLMNode = ({ id, data }) => {
     </BaseNode>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/components/nodes/input-node.jsx
 --------------------------------------------------------------------------------
+```
 import React, { useState } from 'react';
 import { Position } from 'reactflow';
 import { BaseNode } from '../node-base';
@@ -785,11 +1087,13 @@ export const InputNode = ({ id, data }) => {
     </BaseNode>
   );
 };
+```
 
 ================================================================================
 
 File: ./frontend/src/lib/store.js
 --------------------------------------------------------------------------------
+```
 import { createWithEqualityFn } from 'zustand/traditional';
 import {
   addEdge,
@@ -797,93 +1101,202 @@ import {
   applyEdgeChanges,
   MarkerType,
 } from 'reactflow';
+import { produce } from 'immer';
 
 const initialState = {
   nodes: [],
   edges: [],
   nodeIDs: {},
   savedComponents: [],
+  selectedNodes: [],
 };
 
 export const useStore = createWithEqualityFn((set, get) => ({
   ...initialState,
 
   getNodeID: (type) => {
-    const newIDs = { ...get().nodeIDs };
-    if (!newIDs[type]) {
-      newIDs[type] = 0;
+    if (!type) {
+      console.error("Node type is required to generate an ID.");
+      return null;
     }
-    newIDs[type] += 1;
-    set({ nodeIDs: newIDs });
-    return `${type}-${newIDs[type]}`;
+
+    set(produce((state) => {
+      if (!state.nodeIDs[type]) {
+        state.nodeIDs[type] = 0;
+      }
+      state.nodeIDs[type] += 1;
+    }));
+
+    return `${type}-${get().nodeIDs[type]}`;
   },
 
   addNode: (node) => {
-    set((state) => ({
-      nodes: [...state.nodes, node],
+    if (!node.id || !node.type || !node.data) {
+      console.error("Invalid node: Missing required properties.", node);
+      return;
+    }
+    set(produce((state) => {
+      state.nodes.push(node);
     }));
   },
 
   onNodesChange: (changes) => {
-    set((state) => ({
-      nodes: applyNodeChanges(changes, state.nodes),
+    set(produce((state) => {
+      state.nodes = applyNodeChanges(changes, state.nodes);
     }));
   },
 
   onEdgesChange: (changes) => {
-    set((state) => ({
-      edges: applyEdgeChanges(changes, state.edges),
+    set(produce((state) => {
+      state.edges = applyEdgeChanges(changes, state.edges);
     }));
   },
 
   onConnect: (connection) => {
-    set((state) => ({
-      edges: addEdge(
-        {
-          ...connection,
-          type: 'smoothstep',
-          animated: true,
-          markerEnd: { type: MarkerType.Arrow },
+    set(produce((state) => {
+      const newEdge = {
+        id: `edge-${state.edges.length + 1}`,
+        ...connection,
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.Arrow },
+      };
+      state.edges = addEdge(newEdge, state.edges);
+    }));
+  },
+
+  toggleNodeSelection: (nodeId) => {
+    set(produce((state) => {
+      const index = state.selectedNodes.indexOf(nodeId);
+      if (index === -1) {
+        state.selectedNodes.push(nodeId);
+        const node = state.nodes.find(n => n.id === nodeId);
+        if (node) {
+          node.selected = true;
+        }
+      } else {
+        state.selectedNodes.splice(index, 1);
+        const node = state.nodes.find(n => n.id === nodeId);
+        if (node) {
+          node.selected = false;
+        }
+      }
+    }));
+  },
+
+  saveComponent: (name, nodes, description = '') => {
+    if (!name.trim() || !nodes?.length) {
+      console.error("Invalid save component parameters");
+      return;
+    }
+
+    const hasInput = nodes.some(node => node.type === 'customInput');
+    const hasOutput = nodes.some(node => node.type === 'customOutput');
+
+    if (!hasInput || !hasOutput) {
+      console.error("Component must have at least one input and one output node");
+      return;
+    }
+
+    set(produce((state) => {
+      state.savedComponents.push({
+        name,
+        description,
+        nodes: nodes.map((node) => ({
+          ...node,
+          position: { x: 0, y: 0 },
+          selected: false,
+          data: { ...node.data },
+        })),
+      });
+    }));
+  },
+
+  deleteSavedComponent: (name) => {
+    set(produce((state) => {
+      state.savedComponents = state.savedComponents.filter(
+        (component) => component.name !== name
+      );
+    }));
+  },
+
+  deleteNode: (nodeId) => {
+    set(produce((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      
+      state.nodes = state.nodes.filter((n) => n.id !== nodeId);
+      state.edges = state.edges.filter(
+        (edge) => edge.source !== nodeId && edge.target !== nodeId
+      );
+      state.selectedNodes = state.selectedNodes.filter((id) => id !== nodeId);
+
+      if (node?.type === 'savedComponent') {
+        console.log('Deleted saved component instance:', node.data.label);
+      }
+    }));
+  },
+}), Object.is);```
+
+================================================================================
+
+File: ./frontend/src/lib/theme.js
+--------------------------------------------------------------------------------
+```
+export const theme = {
+    colors: {
+        primary: {
+            DEFAULT: 'hsl(var(--primary))',
+            hover: 'hsl(var(--primary-hover))',
+            foreground: 'hsl(var(--primary-foreground))',
         },
-        state.edges
-      ),
-    }));
-  },
+        node: {
+            input: {
+                bg: 'bg-gradient-to-br from-blue-50 to-blue-100',
+                border: 'border-blue-400',
+                icon: 'text-blue-600',
+            },
+            llm: {
+                bg: 'bg-gradient-to-br from-purple-50 to-purple-100',
+                border: 'border-purple-400',
+                icon: 'text-purple-600',
+            },
+            text: {
+                bg: 'bg-gradient-to-br from-green-50 to-green-100',
+                border: 'border-green-400',
+                icon: 'text-green-600',
+            },
+            output: {
+                bg: 'bg-gradient-to-br from-orange-50 to-orange-100',
+                border: 'border-orange-400',
+                icon: 'text-orange-600',
+            },
+            transform: {
+                bg: 'bg-gradient-to-br from-pink-50 to-pink-100',
+                border: 'border-pink-400',
+                icon: 'text-pink-600',
+            },
+            calculation: {
+                bg: 'bg-gradient-to-br from-yellow-50 to-yellow-100',
+                border: 'border-yellow-400',
+                icon: 'text-yellow-600',
+            },
+            decision: {
+                bg: 'bg-gradient-to-br from-purple-50 to-purple-100',
+                border: 'border-purple-400',
+                icon: 'text-purple-600',
+            },
+        },
+    },
+    shadows: {
+        node: 'shadow-lg hover:shadow-xl transition-shadow duration-200',
+    },
+}```
 
-  updateNodeField: (nodeId, fieldName, fieldValue) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) => {
-        if (node.id === nodeId) {
-          return {
-            ...node,
-            data: { ...node.data, [fieldName]: fieldValue },
-          };
-        }
-        return node;
-      }),
-    }));
-  },
-
-  saveComponent: (name, nodes) => {
-    set((state) => ({
-      savedComponents: [
-        ...state.savedComponents,
-        {
-          name,
-          nodes: nodes.map(node => ({
-            ...node,
-            position: { x: 0, y: 0 },
-            selected: false
-          }))
-        }
-      ]
-    }));
-  },
-}), Object.is);
 ================================================================================
 
 File: ./frontend/src/lib/utils.js
 --------------------------------------------------------------------------------
+```
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -905,6 +1318,7 @@ export function isValidVariableName(name) {
     return false;
   }
 }
+```
 
 ================================================================================
 

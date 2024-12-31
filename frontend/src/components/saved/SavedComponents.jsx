@@ -21,7 +21,6 @@ export const SavedComponents = () => {
             label={component.name}
             icon={Package}
             color="bg-teal-500"
-            // customData={{ component }}
             customData={{
                 description: `Nodes: ${component.nodes.length}`,
                 ...component,

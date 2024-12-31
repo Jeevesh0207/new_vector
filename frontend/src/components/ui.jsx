@@ -1,5 +1,11 @@
-import { useState, useRef, useCallback } from 'react';
-import ReactFlow, { Controls, Background, MiniMap, Handle } from 'reactflow';
+import { useState, useRef, useCallback, useMemo } from 'react';
+import ReactFlow, { 
+  Controls, 
+  Background, 
+  MiniMap,
+  Panel,
+  useReactFlow,
+} from 'reactflow';
 import { useStore } from '../lib/store';
 import { shallow } from 'zustand/shallow';
 import { InputNode } from './nodes/input-node';
@@ -10,11 +16,9 @@ import { TransformNode } from './nodes/transform-node';
 import { CalculationNode } from './nodes/calculation-node';
 import { DecisionNode } from './nodes/decision-node';
 import SavedComponentNode from './saved/SavedComponentNode';
+import { ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 
 import 'reactflow/dist/style.css';
-
-const gridSize = 20;
-const proOptions = { hideAttribution: true };
 
 const nodeTypes = {
   customInput: InputNode,
@@ -37,9 +41,16 @@ const selector = (state) => ({
   onConnect: state.onConnect,
 });
 
+const proOptions = { 
+  hideAttribution: true,
+  account: 'paid-pro',
+};
+
 export const PipelineUI = () => {
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  
   const {
     nodes,
     edges,
@@ -49,6 +60,9 @@ export const PipelineUI = () => {
     onEdgesChange,
     onConnect,
   } = useStore(selector, shallow);
+
+  
+  const memoizedNodeTypes = useMemo(() => nodeTypes, []);
 
   const onDrop = useCallback(
     (event) => {
@@ -63,11 +77,9 @@ export const PipelineUI = () => {
       const { nodeType, label, component } = JSON.parse(appData);
       if (!nodeType) return;
 
-      console.log(nodeType,name,component)
-
       const position = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
+        x: event.clientX - reactFlowBounds.left,
+        y: event.clientY - reactFlowBounds.top,
       });
 
       const nodeID = getNodeID(nodeType);
@@ -75,12 +87,7 @@ export const PipelineUI = () => {
         id: nodeID,
         type: nodeType,
         position,
-        data: {
-          id: nodeID,
-          nodeType,
-          label,
-          component,
-        },
+        data: { id: nodeID, nodeType, label, component },
       };
 
       addNode(newNode);
@@ -104,14 +111,55 @@ export const PipelineUI = () => {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onInit={setReactFlowInstance}
-        nodeTypes={nodeTypes}
+        nodeTypes={memoizedNodeTypes}
         proOptions={proOptions}
-        snapGrid={[gridSize, gridSize]}
-        connectionLineType="smoothstep"
+        minZoom={0.1}
+        maxZoom={4}
+        defaultEdgeOptions={{
+          animated: true,
+          style: { stroke: '#64748b', strokeWidth: 2 },
+        }}
       >
-        <Background color="#aaa" gap={gridSize} />
-        <Controls />
-        <MiniMap />
+        <Background color="#94a3b8" gap={16} size={1} />
+        <Controls 
+          className="bg-white/90 backdrop-blur-sm shadow-lg rounded-lg border border-gray-200"
+          position="bottom-right"
+        />
+        <MiniMap 
+          className="bg-white/90 backdrop-blur-sm shadow-lg rounded-lg border border-gray-200"
+          nodeColor={(node) => {
+            switch (node.type) {
+              case 'customInput': return '#3b82f6';
+              case 'llm': return '#8b5cf6';
+              case 'text': return '#22c55e';
+              case 'customOutput': return '#f97316';
+              case 'transform': return '#ec4899';
+              case 'calculation': return '#eab308';
+              case 'decision': return '#8b5cf6';
+              default: return '#64748b';
+            }
+          }}
+        />
+        <Panel position="top-right" className="flex gap-2">
+          <button
+            onClick={() => zoomIn()}
+            className="p-2 rounded-lg bg-white/90 backdrop-blur-sm shadow-sm hover:bg-gray-50 border border-gray-200"
+          >
+            <ZoomIn size={20} />
+          </button>
+          <button
+            onClick={() => zoomOut()}
+            className="p-2 rounded-lg bg-white/90 backdrop-blur-sm shadow-sm hover:bg-gray-50 border border-gray-200"
+          >
+            <ZoomOut size={20} />
+          </button>
+          <button
+            onClick={() => fitView()}
+            className="p-2 rounded-lg bg-white/90 backdrop-blur-sm shadow-sm hover:bg-gray-50 border border-gray-200"
+          >
+            <Maximize size={20} />
+          </button>
+        </Panel>
       </ReactFlow>
     </div>
   );
